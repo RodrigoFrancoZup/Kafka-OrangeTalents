@@ -3,16 +3,16 @@ package br.com.rodrigo.ecommerce;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Properties;
-import java.util.UUID;
 
 /*
 Levantar o Zookeeper;
 Levantar o Kafka
  */
-public class FraudDetectorService {
+public class EmailService {
 
     public static void main(String[] args) {
         //Criando um consumer, que consumirá mensagem com chave em string e valor em string
@@ -21,7 +21,7 @@ public class FraudDetectorService {
 
         //Indico  qual tópico vou consumir as mensagens, normalmente escolhemos só UM,
         // Por parâmetro passo uma Collection qualquer e o Nome do Tópico que vou escutar
-        consumer.subscribe(Collections.singletonList("ECOMMERCE_NEW_ORDER"));
+        consumer.subscribe(Collections.singletonList("ECOMMERCE_SEND_EMAIL"));
 
         // Vou manter isso em looping infinito para ficar ouvindo sempre!
         while(true) {
@@ -34,17 +34,17 @@ public class FraudDetectorService {
             if (!records.isEmpty()) {
                 for (var record : records) {
                     System.out.println("=========================================");
-                    System.out.println("Processando novo pedido, checando fraude!");
+                    System.out.println("Enviando o email");
                     System.out.println(record.key());
                     System.out.println(record.value());
                     System.out.println(record.partition());
                     System.out.println(record.offset());
                     try {
-                        Thread.sleep(5000);
+                        Thread.sleep(1000);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
-                    System.out.println("Pedido processador");
+                    System.out.println("Email enviado");
                 }
             }
         }
@@ -67,14 +67,7 @@ public class FraudDetectorService {
 
         //Estou colocando esse serviço em um grupo (dei ao grupo o nome da classe)
         //Adicionar um serviço em grupo, garante que esse serviço receberá todas as mensagens que ele está ouvindo
-        properties.setProperty(ConsumerConfig.GROUP_ID_CONFIG, FraudDetectorService.class.getSimpleName());
-
-        //Estamo executando essa classe 2x, vamos dar um ID para cada consumidor
-        properties.setProperty(ConsumerConfig.CLIENT_ID_CONFIG, FraudDetectorService.class.getSimpleName() + "_" + UUID.randomUUID().toString());
-
-        //Para cada record (mensagem) recebida eu faço um commit. Se colcoar "2" será de dois em dois..
-        //Se houver re-balanceamento não vai dar problema!
-        properties.setProperty(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "1");
+        properties.setProperty(ConsumerConfig.GROUP_ID_CONFIG, EmailService.class.getSimpleName());
 
         return properties;
     }
