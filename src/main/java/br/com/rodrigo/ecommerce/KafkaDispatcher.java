@@ -7,14 +7,13 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 import java.io.Closeable;
-import java.io.IOException;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 
-class KafkaDispatcher implements Closeable {
+class KafkaDispatcher<T> implements Closeable {
 
     //Essa será a referência de um objeto Producer, que irá escrever mensagem com chave e valor String;
-    private final KafkaProducer<String, String> producer;
+    private final KafkaProducer<String, T> producer;
 
     //Ao criar um um objeto KafkaProducer um producer já é criado, pois colocamos sua criação nesse construtor
     KafkaDispatcher() {
@@ -34,7 +33,7 @@ class KafkaDispatcher implements Closeable {
         properties.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
 
         //Indico o serializador do valor (conteúdo) da mensagem, como meu valor é string preciso de um serializador de string
-        properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, GsonSerializer.class.getName());
         return properties;
     }
 
@@ -42,7 +41,7 @@ class KafkaDispatcher implements Closeable {
     //Via parâmetro tenho para qual tópico enviar, qual chave da mensagem e qual seu conteúdo (valor)
     //Para enviar uma mensagem, eu preciso criar um objeto Record
     //Esse callback criado é para saber se a mensagem foi enviada com sucesso
-    void send(String topic, String key, String value) throws ExecutionException, InterruptedException {
+    void send(String topic, String key, T value) throws ExecutionException, InterruptedException {
         var record = new ProducerRecord<>(topic, key, value);
         Callback callback = (data, ex) -> {
             if (ex != null) {
