@@ -1,14 +1,9 @@
 package br.com.rodrigo.ecommerce;
 
-import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.serialization.StringDeserializer;
 
-import java.time.Duration;
-import java.util.Collections;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import java.util.HashMap;
-import java.util.Properties;
+
 
 /*
 Levantar o Zookeeper;
