@@ -1,0 +1,236 @@
+Capítulo 04 - Serialização Customizada
+Nesse capítulo aprendemos:
+
+⦁	Do jeito que estamos programando é somente para aprendermos a teoria, na prática, normalmente teremos que mudar algumas coisas;
+
+⦁	Primeiro ponto a muda, os diretórios do zookeeper e do kafka guardam dados em uma pasta temporária. Devemos mudar isso, pois se deixarmos asssim em algum momento o sistema operacional apagará esses dados. Para fazer isso:
+
+	1.	Criar uma pasta em um local não temporario para o zookeeper e para kafka. Criei uma pasta no desktop chamada data e dentro dela o a pasta zookeeper e kafka;
+	2.	Vamos agora mudar o arquivo de configuração do kafka e colocar o path dessa pasta que criamos. O arquivo que vamos editar é o server.properties e ele encontra-se em (..\config). O trecho que vamos mudar é: log.dirs=/tmp/kafka-logs, passará a ser: log.dirs=C:\Users\Rodrigo\Desktop\data\kafka
+	3.	Vamos agora mudar o arquivo de configuração do zookeeper e colocar o path dessa pasta que criamos. O arquivo que vamos editar é o zookeeper.properties e ele encontra-se em (..\config). O trecho que vamos mudar é: dataDir=/tmp/zookeeper, passará a ser: dataDir=C:\Users\Rodrigo\Desktop\data\zookeeper
+	4.	Agora temos que matar o kafka e zookeeper se eles estiverem rodando e levanta-los novamente. E as mensagens que estavam sendo enviadas/recebidas serão perdidas.
+
+⦁	Estamos usando String, String para representar a mensagem (chave - valor), mas na prática queremos além de String poder transportar o objeto, em nosso exemplo eu queria transportar o objeto Order (pedido). Podeira criar um Order no KafkaDispatcher, mas daí esse producer só saberia enviar objeto do tipo Order e queremos que nosso KafkaDispatcher e KafkaService mantenham-se genéricos. Para isso faremos uso do Generics do Java. Vamos começar a alterar o código:
+
+	1.	Criar no projeto a classe Order, com os atributos String userId, String orderId, e BigDecimal amount. Criar um construtor que receba via parâmetros os valores desses atributos;
+	
+	2.	A assinatura da classe KafkaDispatcher muda para KafkaDispatcher<T>, isso é para aplicar o generics;
+
+	3.	Na classe NewOrderMain, devemos alterar o trecho em que criamos um producer, ficará assim: var dispatcher = new KafkaDispatcher<Order>
+
+	4.	Na classe NewOrderMain, dentro do for(), no trecho que enviamos mensagem precisaremos criar um objeto do tipo Order e depois enviá-lo para o tópico, ficará assim:
+
+//Criando um id aleatório para o userId de Pedido 
+var userId = UUID.randomUUID().toString(); 
+
+//Criando um id aleatório para o orderId de Pedido 
+var orderId = UUID.randomUUID().toString(); 
+
+//Criando um valor aleatório do tipo BigDecimal 
+var amount = new BigDecimal(Math.random() * 5000 + 1); 
+
+//Criando um objeto Order var Order = new Order(userId, orderId, amount); 
+
+//Fazendo o produtor enviar a mensagem para o tópico ECOMMERCE_NEW_ORDER dispatcher.send("ECOMMERCE_NEW_ORDER", userId, order);
+
+	5.	Vai dar erro, pois o método send() do KafkaDispatcher está esperando uma String. Não podemos mudá-lo para Order, pois queremos que seja genérico. Essa classe agora tem o <T> em sua assinatura, podemos por nesse mesmo método (send) o T, ficando assim:
+
+void send(String topic, String key, T value) throws ExecutionException, InterruptedException;
+
+	6.	Outro ponto que temos que mudar é o atributo producer que temos nessa classe, pois antes ele era uma referência para producer de String, String, agora ele tem que ser referencia para um producer de String, T. Veja como era antes e como deve ficar:
+
+private final KafkaProducer<String, String> producer;
+private final KafkaProducer<String, T> producer;
+
+	7.	Ainda não conseguimos rodar a aplicação, pois agora o dispatcher.send() para e-mail está falhando, pois o nosso a referencia do nosso dispatcher é para order. Teremos que fazer outro dispatcher, agora para String. Ficará assim:
+
+var oderDispatcher = new KafkaDispatcher<Order>()
+var emailDispatcher = new KafkaDispatcher<String>()
+
+	8.	Teremos agora outra falha. O Kafka não vai conseguir transformar (serializar) a classe Order para String. Teremos que ensinar ele fazer isso. Para isso lá nas configurações para se cirar um Producer, ou seja, lá no método properties() vamos trocar o serializador, vamos usar um serializador nosso. Mas antes teremos que adicionar no projeto a dependencia do Gson:
+
+<dependency>
+	<groupId>com.google.code.gson</groupId>
+	<artifactId>gson</artifactId><version>2.8.6</version></dependency>
+
+Agora la no método properties() vou alterar o trecho:
+
+properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+
+Para:
+
+properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, GsonSerializer.class.getName());
+
+Mas não existe GsonSerializer, vamos criar essa classe a seguir;
+
+	9.	Criar a classe GsonSerializer:
+
+public class GsonSerializer<T> implements Serializer<T> { 
+
+private final Gson gson = new GsonBuilder().create(); 
+
+@Override public byte[] serialize(String s, T object) { 
+	return gson.toJson(object).getBytes(); 
+	}
+ }
+
+	10.	Agora SIM! Estamos enviando uma mensagem cuja chave está em String e o valor em Objeto do tipo Order! O Kafka agora consegue pegar esse objeto e transformar em bytes, pois kafka sempre guarda as mensagems em bytes!
+
+⦁	O nosso LogService ainda está sendo criado da maneira antiga, sem utilizar o KafkaService. Vamos mudar isso, para agilizar basta copiar o conteúdo de um service pronto e mudar os trechos que indica qual tipo será o consumer específico. Só temos um problema! O LogService usa um partern para indicar que quer ouvir todo tópico que contenha ECOMMERCE no nome. Para resolver isso, devemos criar mais um construtor na classe KafkaService. Vamos mudar isso:
+
+	1.	Na classe LogService o trecho de criação de um Producer desse tipo ficará: 
+
+var service = new KafkaService(LogService.class.getSimpleName(), Pattern.compile("ECOMMERCE.*"), logService::parse)
+
+	2.	Na classe KafkaService criar mais um construtor, agora um que receba patern como parâmetro:
+
+KafkaService(String groupId, Pattern topic, ConsumerFunction parse) { 
+
+this.parse = parse; 
+this.consumer = new KafkaConsumer<>(properties(groupId)); consumer.subscribe(topic); 
+}
+	3.	O serviço vai estar funcionando.
+
+⦁	O serviço de Log esta funcionando, pois agora enviamos uma mensagem cujo valor é Objeto Order com o nosso Producer e o Service de Log (consumer) pega a mensagem armazenada em bytes no kafka e transforma em String. Mas o serviço de FraudDetectorService precisa do objeto Order, e o Kafka não sabe montá-lo. Vamos ter que cirar agora um deserializador de Byte para Objeto Order;
+
+⦁	Deserialização customizada:
+	1.	Ir na classe KafkaService e na sua assinatura colocar o <T>, ficando assim:
+
+class KafkaService<T> implements Closeable
+
+	2.	O atributo que ficava com a referencia do consumir mudará de <String, String> para <String, T> ficando assim:
+
+private final KafkaConsumer<String, T> consumer;
+
+	3.	Agora a interface ConsumerFunction passa a ter <T> e o seu método consume passa a receber ConsumerRecord<String,T>, ficando assim:
+
+public interface ConsumerFunction<T> { 
+
+void consume(ConsumerRecord<String, T> record); 
+
+}
+
+	4.	Vamos precisar agora criar a classe GsonDeserializer, e nela usarmos o Gson para transformar a mensagem em Byte em Objeto. Mas teremos um problema, queremos deixar esse método genérico, não queremos amarrar essa conversão somente em byte -> Order. E o método de desserialização do Gson exige o tipo para qual ele irá deserializar. Vamos resolver isso no próximo passo;
+
+	5.	Lá na classe KafkaService, no método properties(), vamos colocar uma propriedade de configuração que será acessada pelo GsonDeserializer, assim vamos consegui passar para qual tipo queremos a desserialização, ficando assim:
+
+properties.setProperty(GsonDeserializer.TYPE_CONFIG, String.class.getName());
+
+	6.	Na classe GsonDeserializer criar os atributos TYPE_CONFIG e type, ficará assim:
+
+public static final String TYPE_CONFIG = "br.com.rodrigo.ecommerce.type_config";
+
+
+private Class<T> type;
+
+	7.	Na clase GsonDeserializer , vamos precisar implementar dois métodos, o configure e o deserilize (é diferente de criar um GsonSerializer). O configure ficará assim:
+
+public void configure(Map<String, ?> configs, boolean isKey) { 
+	String typeName = String.valueOf(configs.get(TYPE_CONFIG)); 	try { 
+		this.type = (Class<T>) Class.forName(typeName); 
+	      } catch (ClassNotFoundException e) { 
+		throw new RuntimeException("Tipo de deserialização não existe no projeto!"); 
+	} 
+}
+
+O método deserialize ficará assim:
+
+public T deserialize(String s, byte[] bytes) { 
+	return gson.fromJson(new String(bytes), type); 
+}
+
+	8.	Na classe KafkaService, no método properties(), devemos trocar o deserializador do trecho:
+
+properties.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+
+Para:
+
+properties.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, GsonDeserializer.class.getName());
+
+	9.	Nosso KafkaService agora está preparado para deserializar byte em um Objeto (irá usar nosso Gson), mas ele não funcionará quando receber um String (por exemplo o nosso DispatcherDeEmail). Para resolver isso poderemos por o email dentro de uma classe, o email passa a ser uma objeto também.
+
+	10.	Vamos criar a classe Email, ficará assim:
+
+public class Email { 
+	private final String userId; 
+	private final String oderId; 
+	private final BigDecimal amount; 
+
+ public Email(String userId, String oderId, BigDecimal amount) { 
+	this.userId = userId; 
+	this.oderId = oderId; 
+	this.amount = amount; 
+}
+
+	11.	Na classe NewOrderMain (Producer), o seu dispatcher de email agora não é de String e sim de Email:
+
+var emailDispatcher = new KafkaDispatcher<Email>()
+
+ATENÇÃO: O professor mudou, ele retorna para 
+
+var emailDispatcher = new KafkaDispatcher<String>()
+
+	12.	Nosso projeto ainda não funciona. Agora devemos passar para o consrtrutor de KafkaService o tipo de objeto que o consumidor irá consumir. Por exemplo, na classe FraudDetecorService eu vou acrescentar o Order.class como atributo do construtor do KafkaService, ficando assim:
+
+service = new KafkaService(FraudDetectorService.class.getSimpleName(),
+"ECOMMERCE_NEW_ORDER", 
+fraudDetectorService::parse, 
+Order.class)
+
+	13.	Na classe KafkaService eu terei que passar a receber mais um parâmetro em seu construtor, o tipo que o consumidor irá consumir:
+
+KafkaService(String groupId, String topic, ConsumerFunction parse, Class<T> type)
+
+Esse novo parâmetro, chamado de type eu vou passá-lo para o properties utilizado para criar um consumer, ficando assim:
+
+this.consumer = new KafkaConsumer<>(properties(groupId, type));
+
+E lá no método properties() eu passo a receber esse type, ficando assim:
+
+private  Properties properties(String groupId, Class<T> type)
+
+Obs1: O método properties não pode mais ser Static!
+Obs2: Todo Consumer ao chamar o KafkaService terá que passar o novo parâmetro! Ou seja, arrume os outros consumers!
+
+	14.	Agora no método properties(), na propriedade que usavamos para configurar o gson, ficará assim:
+
+properties.setProperty(GsonDeserializer.TYPE_CONFIG, type.getName());
+
+	15.	Agora na classe FraudDetecorService, no método parse devemos mudar o ConsumerRecord para <String, Order>:
+
+private void parse(ConsumerRecord<String,Order> record)
+
+Obs: Fazer a mesma coisa pra outros services.
+
+	16.	O problema agora é o nosso LogService, pois ele vai ouvir mensagens de vários tipos. Para resolver isso vamos alterar o construtor do KafkaService utilizado por LogService, vamos passar nesse construtor uma Collection com configurações de Deserializer, com os tipos que LogService irá utilizar:
+
+var service = new KafkaService(LogService.class.getSimpleName(),
+ 	Pattern.compile("ECOMMERCE.*"), 
+	logService::parse, 
+	String.class, 	Map.of(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName()))
+
+	17.	Agora o construtor de KafkaService passa a receber um map<String,String> com parâmetro:
+
+KafkaService(String groupId, String topic, ConsumerFunction parse, Class<T> type, Map<String,String> properties)
+
+Esse novo parâmetro, chamado de properties eu vou passá-lo para o método properties utilizado para criar um consumer, ficando assim:
+
+this.consumer = new KafkaConsumer<>(properties(groupId, type, properties));
+
+E o método properties() passará a receber um map<String,String> properties:
+
+private  Properties properties(String groupId, Class<T> type, Map<String, String> overriedProperties)
+
+	18.	Agora no método properties() vou adicionar:
+
+properties.putAll(overriedProperties);
+
+	19.	Agora temos que arrumar a criação de todos os Services, pois o construtor do KafkaService está exigindo um map<String,String>. E quando o Service não exigir configuração extra, vamos passar o map vázio, veja por exemplo como fiou o FraudDetectorService:
+
+var service = new KafkaService(FraudDetectorService.class.getSimpleName(), 	"ECOMMERCE_NEW_ORDER", 
+	fraudDetectorService::parse, 
+	Order.class, 
+	new HashMap<>())
+
+
+

@@ -1,0 +1,74 @@
+Capítulo 02 - Paralelizando tarefas em um serviço
+Nesse capítulo aprendemos:
+
+⦁	Agora o nosso produtor (NewOrderMain) vai criar mensagens de um novo tipo, ou seja, teremos um novo tópico e consequentemente um novo record. Vamos criar o tópico ECOMMERCE_SEND_EMAIL. E vamos criar um novo consumidor, agora haverá um serviço consumidor para as mensagens do tipo: ECOMMERCE_SEND_EMAIL. Perceba que um produtor pode enviar diversos tipos de mensagens (record), mas normalmente o consumidor só ouve um tipo de mensagem;
+
+⦁	Criando a nova mensagem, na classe NewOrderMain, fazer:
+1) Vamos pegar o trecho:
+(data, ex) ->{ 
+	if(ex != null){ 
+	return; 
+	} 
+	System.out.println("Sucesso enviando "+ data.topic() + ":::partition " + data.partition() + "/ offset " + data.offset() + "/" + data.timestamp()); 
+}
+	E refatorá-lo em uma variavel, podemos selecionar todo esse trecho e clicar botão direito que a IDE faz isso. Fizemos isso para agora podermos usa esse mesmo trecho em outra mensagem. Vai ficar assim:
+Callback callback = (data, ex) -> {
+    if (ex != null) {
+        return;
+    }
+    System.out.println("Sucesso enviando " + data.topic() + ":::partition " + data.partition() + "/ offset " + data.offset() + "/" + data.timestamp());
+};
+
+2) Agora criar o novo record, chamadao emailRecord, durante a sua criação cria-se também um novo tópico, o ECOMMERCE_SEND_EMAIL. Criei também a variavel email, para simular a chave e o valor da mensagem. Nota-se que usamos o mesmo callback, pois ele foi isolado em variável:
+	var email = "Obrigado, sua compra está sendo processada!";
+	var emailRecord = new ProducerRecord<>("ECOMMERCE_SEND_EMAIL", email, email);
+	producer.send(emailRecord,callback).get();
+
+⦁	Criando a classe EmailService, essa será um consumer do tópico ECOMMERCE_SEND_EMAIL, nesse caso eu dupliquei a classe FraudDetectorService, alterei o nome para EmailService, e alterei o nome do tópico que esse serviço vai ficar ouvindo: 
+	1) consumer.subscribe(Collections.singletonList("ECOMMERCE_SEND_EMAIL"));
+
+⦁	Fugindo a regra anterior, vamos criar um consumidor de log, e esse ouvirá mensagens dos tópicos ECOMMERCE_SEND_EMAIL e ECOMMERCE_NEW_ORDER
+	1) nesse caso eu dupliquei a classe FraudDetectorService, alterei o nome para LogService, e alterei o nome do tópico que esse serviço vai ficar ouvindo: 
+	consumer.subscribe(Pattern.compile("ECOMMERCE.*"));
+
+⦁	A seguir vamos falar do PARALELISMO:
+	1.	Lembra do conceito de grupo? Que ao colocar um Consumidor em um grupo eu garantia que ele receberia todas mensagens? Pois é, esse conceito garante isso, devido a regra: Toda mensagem será entregue ao grupo que está ouvindo. Ou seja, a garantia não é que o Consumidor recebe todas as mensagens e sim o grupo! Logo se eu criar um consumidor em um grupo que já tem outro consumidor eu tenho a certeza que a mensagem chegará ao grupo, mas eu não tenho a certeza de qual consumidor irá consumir a mensagem!
+	2.	Colocando em prática o item anterior, vou criar mais um FraudDetectorService, pois assim terei dois consumidores do mesmo grupo. Para isso, basta eu colocar para rodar 2x a mesma classe FraudDetectorService (a IDE permite isso, basta selecionar para rodar a classe FraudDetectorService, clicar ao lado do triangulo de Play e selecionar a opção Edit Configurations e na janela que abrir duplicar a configuração de Run dessa classe). Ao colocar isso em prática, vemos que todas mensagem vão para FraudDetecorService, o FraudDetecorService(1) nunca recebe nada! Isso ocorre porque cada consumidor fica ouvindo as mensagens do tópico que ele assinou (deu subscribe), mas além disso temos que ver as partições (PARTITIONS), pois cada Consumidor fica responsável por uma partição (Partition) e as mensagens escritas no tópico ECOMMERCE_NEW_ORDER só tem uma partição, e nesse caso o consumidor FraudDetecorService ficou responsável por ela!
+	3.	Se vamos ter 2 consumidores no grupo FraudDetectorService, devemos no MÍNIMO ter 2 Partitions no tópico ECOMMERCE_NEW_ORDER (é o tópico que os consumidores do grupo FraudDetectorService ouvem). Podemos alterar um tópico que está rodando com seguinte comando via terminal (na pasta kafka):
+
+	.\bin\windows\kafka-topics.bat --alter --zookeeper localhost:2181 --topic ECOMMERCE_NEW_ORDER --partitions 3
+
+	4.	Se rodarmos agora, nada mudará, todas mensagens vão cair no mesmo consumidor! Nesse as partições foram divididas entre consumidores, por exemplo: FraudDetecorService pegou Partition 0 e 1, já FraudDetecorService(1) pegou a 2, mas o balanceamento ocorre através da chave da mensagem, ou seja, o que define em qual partição a mensagem vai cair é sua chave, e no nosso teste a chave é sempre a mesma, vamos gerar as chaves de forma aleatória para isso mudar:
+
+	var key = UUID.randomUUID().toString();
+
+	Passar essa chave nas mensagens:
+
+	var record = new ProducerRecord<>("ECOMMERCE_NEW_ORDER", key, value);
+
+	5.	Se fircarmos rodando a aplicação, veremos que as mensagens agora vão para os dois consumidores;
+
+	6.	Temos um comando para listar os grupos e suas partitions, no terminal na pasta Kafka:
+
+	.\bin\windows\kafka-consumer-groups.bat --all-groups --bootstrap-server localhost:9092 --describe
+
+	7.	Podemos dar um ID para cada Consumidor do mesmo grupo, e tem que ser um randomico, pois estamos executando a mesma classe 2x, se deixar fixo teremos um ID repetido. Na classe FraudDetectorService, no método properties() colocar:
+
+	properties.setProperty(ConsumerConfig.CLIENT_ID_CONFIG, FraudDetectorService.class.getSimpleName() + "_" + UUID.randomUUID().toString());
+
+	8.	Se forçarmos 100 mensagens (colocando o código num loop) vamos  ver que cada mensagem está indo para um consumidor (algumas para o FraudDetectorService outras para FraudDetectorService(1)). E AQUI TEREMOS UM PROBLEMA! Em algum momento ocorrerá um re-balanceamento, o Kafka vai tentar balancear a carga que cada consumidor consome (trocar seus partitions) e como terá mensagens que ainda não foram ouvidas, mensagens que não sfreram commits, e isso vai dar problema!  Ainda vamos aprender a configurar melhor os commit's das mensagens!
+
+⦁	Configurando melhor os Commits:
+	1.	Na classe FraudDetecorService, no método properties(), colocar:
+
+	properties.setProperty(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "1");
+
+	Com esse comando, agora para cada Record (mensagem) recebida por esse consumidor, ocorrerá um commit. Com isso, caso ocorrar re-balanceamento não haverá problemas!
+ 
+⦁	Importante ter em mente: 
+	a.	que a mensagem não vai para todos os consumidores, a mensagem vai para o grupo, agora quem irá receber vai depender da configuração! (O padrão: a chave da mensagem determina qual Partition a mensagem vai cair);
+	b.	o número de partition tem que ser igual ou maior do que consumidor, caso contrário, terá consumidor ocioso!
+
+⦁	Pergunta do capítulo: Qual a importância das chaves na paralelização de tarefas?
+	Resposta: Ela é peça fundamental para paralelizar o processamento de mensagens em um tópico dentro do mesmo consumer group. (A chave é usada para distribuir a mensagem entre as partições existentes e consequentemente entre as instâncias de um serviço dentro de um consumer group.)
+

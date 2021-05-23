@@ -1,0 +1,223 @@
+Capítulo 03 - Criando nossa camada
+Nesse capítulo aprendemos:
+
+⦁	Estamos repetindo muito código nas classes de nossos consumidores (services) e na classe de producer (NewOrderMain), e isso não é uma boa pratica. Vamos isolar o código repetido em classes!
+
+⦁	Vamos refatorar as classes de consumidores, vamos criar uma classe que irá construir os consumidores - estilo fábrica:
+	1.	Criar a classe KafkaService. Essa classe terá todo código genérico para criar um consumidor (um service);
+
+	2.	Criar o construtor dessa classe recebendo todos os parâmetros necessários para se criar um consumidor (service). São eles: groupId (é o identificador de cada consumidor criado), topic (é o tópico que o consumidor ficará ouvindo - consumindo) e o parse (representa a função que o consumidor irá executar quando ouvir a mensagem). Construtor ficará assim:
+
+	KafkaService(String groupId, String topic, ConsumerFunction parse) { 
+	this.parse = parse; 
+	this.consumer = new KafkaConsumer<>(properties(groupId)); consumer.subscribe(Collections.singletonList(topic)); 
+	}
+
+	Nesse trecho de código eu estou guardando na variavel parse a referencia de função que vou executar (função específica do consumidor). Estou criando um novo consumidor (servico) e sua referencia é a variavel consumer. E depois de criado eu digo qual tópico esse consumidor consumirá, dando um subscribe no tópico.
+
+	3.	Criar nessa classe dois atributos:
+
+	private final KafkaConsumer<String, String> consumer; 
+	private final ConsumerFunction parse;
+
+	O primeiro será uma referencia para os objetos consumidores e através dele poderei executar a função de cada objeto. Já o segundo é a referencia para as funçoes que cada objeto consumidor irá executar;
+
+	4.	Vou criar a interface ConsumerFunction, esse é o tipo da variável parse. Vou defeinir nessa interface a função que todo consumidor (service) terá:
+
+	public interface ConsumerFunction{ 
+	void consume(ConsumerRecord<String, String> record); 
+	}
+
+	5.	Na classe KafkaService vou criar o método run(), esse é o método que vai fazer o objeto consumidor (service) executar a sua função:
+
+void run() { 
+	while (true) { 
+		var records = consumer.poll(Duration.ofMillis(100)); 
+		if (!records.isEmpty()) { System.out.println("Encontrei " + 		records.count() + " registros"); 
+			for (var record : records) { 
+				parse.consume(record); 
+			} 
+		}
+	 }
+ }
+
+	6.	Na classe KafkaService criar o método properties() para podermos configurar cada consumidor (service). Esse método terá por enquanto apenas um atributo, pois a configuração está bem parecida para todos os consumidores (quando tiver algo diferente, igual o ID de consumidor, o valor será passado via parâmetro):
+
+private static Properties properties(String groupId) { 
+var properties = new Properties();
+
+properties.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "127.0.0.1:9092");
+ properties.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+ properties.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+
+properties.setProperty(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+
+properties.setProperty(ConsumerConfig.CLIENT_ID_CONFIG, UUID.randomUUID().toString()); 
+
+return properties; 
+
+}
+
+⦁	Alterar agora uma classe Consumidora, no caso será EmailService, agora o objeto dessa classe usará o KafkaService para ser construído:
+	1.	Na classe EmailService a primeira coisa a se fazer é criar um objeto do tipo EmailService, pois para se criar um consumidor vamos usar a classe KafkaService, e a classe KafkaService exige receber em seu construtor a referencia de uma função do consumidor. Atavés do objeto EmailService vamos conseuigr passar essa referencia:
+
+	var emailService = new EmailService();
+
+	2.	Agora podemos criar o objeto KafkaService, passando por parâmetro o ID que queremos dar ao consumidor, o Tópico que esse consumidor irá escutar, e a função que ele executará quando receber a mensagem:
+
+	var service = new KafkaService(EmailService.class.getSimpleName(), "ECOMMERCE_SEND_EMAIL", emailService::parse);
+
+	3.	Agora com objeto criado, nesse caso chamamos de service, podemos executar sua função:
+
+	service.run();
+
+	4.	Agora precisamos criar a função específica do consumidor (serviço) EmailService, pois o service.run() executará a função de todos os consumidores com o trecho genérico a todos consumidores, juntamente com a função específica de cada consumidor (passamos a refeência dessa função, chamamos de parse):
+
+private void parse(ConsumerRecord<String,String> record) { 
+	System.out.println("------------------------------------------"); 	System.out.println("Send email"); 	System.out.println(record.key()); 
+	System.out.println(record.value()); 	System.out.println(record.partition()); 	System.out.println(record.offset()); 
+	try { 
+		Thread.sleep(1000); 
+	} catch (InterruptedException e) { 
+		e.printStackTrace(); 
+	} 
+	System.out.println("Email sent"); 
+}
+
+⦁	Vamos refatorar as classes de produtores, vamos criar uma classe que irá construir os produtores - estilo fábrica. O ideal era criamos para isso a classe KafkaProducer, mas essa classe já é utilizada pelo Kafka. Vamos entar criar a classe KafkaDispatcher.
+	1.	Criar a classe KafkaDispatcher. Essa classe terá todo código genérico para criar um produtor (um Producer);
+
+	2.	Criar o construtor dessa classe. Ela, pelo menos por enquanto, não tem parâmetros. No corpo do seu construtor vamos criar um producer:
+
+	KafkaDispatcher() { 
+		this.producer = new KafkaProducer<>(properties()); 
+	} 
+
+	3.	Criar nessa classe o atributo:
+
+	private final KafkaProducer<String, String> producer;
+
+	Esse será a referência para os objetos produtores (producer). Note que indicamos que esse produtor irá criar mensagens com chave e valor do tipo String. 
+
+	4.	Na classe KafkaDispatcher criar o método properties() para podermos configurar a criação de cada produtor (producer):
+
+private static Properties properties() { 
+	var properties = new Properties(); 
+	
+	properties.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "127.0.0.1:9092"); 
+
+	properties.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+ 	properties.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName()); 
+
+	return properties; 
+}
+
+
+	5.	Todo producer envia uma mensagem, logo teremos o método send() para enviar a mensagem. Atavés dos parâmetros vamos indicar para qual tópico será o envio, a chave da mensagem e o valor (conteúdo) da mensagem:
+
+void send(String topic, String key, String value) throws ExecutionException, InterruptedException { 
+
+	var record = new ProducerRecord<>(topic, key, value); 
+
+	Callback callback = (data, ex) -> { 
+		if (ex != null) { 
+			ex.printStackTrace(); 
+			return; 
+		} 
+	System.out.println("sucesso enviando " + data.topic() + 	":::partition " + data.partition() + "/ offset " + data.offset() + "/ 	timestamp " + data.timestamp()); 
+	
+	}; 
+
+producer.send(record, callback).get(); 
+
+}
+
+⦁	Alterar agora as classes do tipo Produtores, no caso será NewOrderMain, agora o objeto dessa classe usará o KafkaDispatcher para ser construído:
+	1.	Criar um objeto KafkaDispatcher, com ele já temos o produtor (producer) e vamos poder enviar a mensagem, bastará chamar o método send() passando o tópico, chave e valor da mensagem. Criando o objeto:
+
+	var dispatcher = new KafkaDispatcher();
+
+	2.	Criando conteudo da mensagem:
+
+	var key = UUID.randomUUID().toString(); 
+	var value = key + ",67523,1234";
+
+	3.	Enviando a mensagem:
+
+dispatcher.send("ECOMMERCE_NEW_ORDER", key, value);
+
+A classe ficou assim:
+
+public class NewOrderMain {
+
+    public static void main(String[] args) throws ExecutionException, InterruptedException {
+        
+        var dispatcher = new KafkaDispatcher();
+
+        for (var i = 0; i < 10; i++) {
+
+            var key = UUID.randomUUID().toString();
+
+            var value = key + ",67523,1234";
+            dispatcher.send("ECOMMERCE_NEW_ORDER", key, value);
+
+            var email = "Thank you for your order! We are processing your order!";
+            dispatcher.send("ECOMMERCE_SEND_EMAIL", key, email);
+        }
+    }
+}
+
+	Esse for é para enviarmos 10 mensagens para cada tópico.
+
+⦁	É uma boa prática fecharmos a porta de um recurso, quando a execução do mesmo acaba, ou quando ocorre uma exception. Para isso podemos usar a interface Closeable e implementar seu método.
+
+	1.	Aplicando isso na classe KafkaDispatcher:
+
+	class KafkaDispatcher implements Closeable
+
+	2.	A classe KafkaDispatcherpassa a ter o método:
+
+	public void close()  { 
+		producer.close(); 
+	}
+
+	3.	Agora podemos deixar o conteudo da classe NewOrderMain dentro de um try(){}, e caso ocorra um exception a porta será fechada. Ficou assim:
+
+
+public class NewOrderMain {
+
+    public static void main(String[] args) throws ExecutionException, InterruptedException {
+        
+        try(var dispatcher = new KafkaDispatcher()) {
+
+        for (var i = 0; i < 10; i++) {
+
+            var key = UUID.randomUUID().toString();
+
+            var value = key + ",67523,1234";
+            dispatcher.send("ECOMMERCE_NEW_ORDER", key, value);
+
+            var email = "Thank you for your order! We are processing your order!";
+            dispatcher.send("ECOMMERCE_SEND_EMAIL", key, email);
+	}
+        }
+    }
+}
+
+⦁	Implementar a interface Closeable na classe  KafkaService também e o trecho de criar um service ganhará o try catch, ficará assim (colocar o try em todos os sevices/consumers:
+
+try(var service = new KafkaService(EmailService.class.getSimpleName(),
+        "ECOMMERCE_SEND_EMAIL",
+        emailService::parse)) {
+
+        	service.run();
+	}	
+}
+
+⦁	Pergunta: Qual a vantagem de criar nossa própria camada?
+Resposta: Adotar boas práticas como evitar código duplicado.
+(Justificativa:Definir padrões, boas práticas e evitar más práticas, permitindo novos/as devs começar a desenvolver rapidamente código pronto para produção.)
+
+
+
+

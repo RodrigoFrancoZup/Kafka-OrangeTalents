@@ -1,0 +1,28 @@
+Comando para Windows:
+
+⦁	Levantar Zookeeper:
+.\bin\windows\zookeeper-server-start.bat .\config\zookeeper.properties
+
+⦁	Levantar o Kafka:
+.\bin\windows\kafka-server-start.bat .\config\server.properties
+
+⦁	Criando um Tópico via terminal:
+.\bin\windows\kafka-topics.bat --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic NOME_DO_TOPICO
+
+⦁	Listar tópicos:
+.\bin\windows\kafka-topics.bat --list --bootstrap-server localhost:9092
+
+⦁	Criando um producer e enviar msg via terminal:
+.\bin\windows\kafka-console-producer.bat --broker-list localhost:9092 --topic NOME_DO_TOPICO
+
+⦁	Cirando um Consumer e ouvindo a msg via terminal:
+.\bin\windows\kafka-console-consumer.bat --bootstrap-server localhost:9092 --topic LOJA_NOVO_PEDIDO --from-beginning
+
+⦁	Alterar para 3 partitions o tópico já criado:
+.\bin\windows\kafka-topics.bat --alter --zookeeper localhost:2181 --topic ECOMMERCE_NEW_ORDER --partitions 3
+
+⦁	Listar os grupos e suas partitions:
+.\bin\windows\kafka-consumer-groups.bat --all-groups --bootstrap-server localhost:9092 --describe
+
+⦁	Tirar os dados de Kafka e Zookeeper de pasta temporárias. Alterar o conteúdo config de ambos.
+No kafka o parametro a ser mudado é  log.dirs. já no zookeeper é o: dataDir

@@ -1,0 +1,37 @@
+Capítulo 05 - Microsserviços e módulos
+Nesse capítulo aprendemos:
+
+⦁	Finalizamos o projeto, mas os serviços que ciramos estão todos juntos, no mesmo projeto, ou seja, continua um projeto Monolito. Vamos criar microsserviços, colocar cada serviço em um novo projeto;
+
+⦁	Com o Maven vamos criar sub-módulos ao invés de criar novos projetos, pois com um sub-módulo vamos conseguir commitar todos módulos em um únco repositório, ou seja, o time de desenvolvimento que trabalha no serviço X terá visão de todos os serviços (outros projetos/módulos). Teria também como criar um monorepositório caso optássemos por criar projetos novos para cada serviço, mas vamos ficar com o sub-módulos;
+
+⦁	Para dividir em sub-módelos vamos precisar criar um módulo (pai). Vamos fazer tudo isso seguindo os passos (Isso será feito no IntelliJ:
+
+	1.	Clicar botão direito no projeto -> New -> Module -> Deixar o Maven marcado -> Clicar em next -> Trocar/Colocar valor apenas no campo ArtifactId: service-email -> next -> Finish;
+	2.	Agora a classe EmailService tem que ser enviada para o módulo service-email. A classe será colocada também no pacote src/main/java. Para fazer isso evite arrastar a classe de um lugar para outro, pois dá problema de pacte. Faça assim: botão esquerdo na classe que quer mover -> Refactor -> MoveClass -> No campo Target destination directory colocar para qual módulo e pasta queremos levar a classe e para isso basta clicar no "...", no caso: service-email / src/main/java. Após isso só confirmar a mudança, mesmo tendo mensagens de avisos e corrigir os problemas de importação na classe;
+	3.	Fazer o mesmo com FraudDetecorService, LogService, NewOrderMain (fazer o passo 1 e o 2).
+
+⦁	Note que agora ficou a classe Order e as classes do Kafka (genéricas que criamos para criar obojeto Consumer e Producer). Vamos passar todas essas classes, exceto a Order para o Module common-kafka. Não precisamos passar uma classe de cada vez para o module, podemos selecionar várias e clicar botão direito -> refactor -> MoveClass...
+
+⦁	Agora todos os serviços pederam a referencia dessas classes de configuração do kafka, temos que abrir cada uma delas arrumar a importação, pois agora a importação será do module common-kafka;
+
+⦁	Vamos analisar a classe Order. Essa classe foi criada para ser uma classe do tipo DTO (Data Transfer Object), ou seja, usamos ela apenas para armazenar a mensagem de um pedido. Só que cada serviço que escreve/ouve essa mensagem poderia querer adicionar ou remover atributos, ou seja, não faz sentido essa classe ter genérica para todos os serviços. Outro problema é quando formos dar manuteção nessa classe, todos os serviços que a utilizam serião paraliados até a manutenção ser finalizada. Portanto cada serviço terá sua classe Order;
+
+⦁	Vamos mover a classe Order para os módulos que precisam dela, no caso: NewOrderMain. Após isso vamos copiar a classe Order e colar nos outros módulos que também precisam dessa classe, no caso: FraudDetectorService - O module raiz ficou sem a classe Order, é assim mesmo que deve ficar! Além disso vamos retirar dos módulos que não precisam dela a sua importação (arquivo pom.xml de cada módulo que não utiliza order, devemos remover:
+
+<dependency>
+	<groupId>br.com.rodrigo</groupId>
+	<artifactId>ecommerce</artifactId>
+	<version>1.0-SNAPSHOT</version>
+	<scope>compile</scope>
+</dependency>
+
+Podemos agora retirar essa dependencia dos serviços que também utilizam o Order, pois agora o própio módulo tem seu Order, ele não precisa importar!
+
+⦁	Agora em todos os serviços, em seus arquivos pom.xml vamos retirar o trecho das dependencias: <scope>compile</scope>
+
+⦁	Projeto finalizado. E agora para gerar um JAR disso tudo? Basta gerar o package apartir do projeto principal, no caso o ecommerce. A IDE pode nos ajudar com isso, basta abrir o Maven da IDE (Icone M do lado esquerdo na parte superior) -> abrir o pojeto raiz (root) -> clicar no icone M (Execute Maven Goal) e rodar o comando mvn package.
+
+⦁	Pergunta do capítulo: Qual uma vantagem de extrair bibliotecas comuns?
+Resposta:Múltiplos projetos se beneficiam da mesma base de código.
+Justificativa: Isso permite que devs foquem nos requerimentos únicos de seu projeto.
