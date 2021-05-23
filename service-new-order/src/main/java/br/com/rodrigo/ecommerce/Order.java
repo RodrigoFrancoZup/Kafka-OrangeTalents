@@ -2,15 +2,15 @@ package br.com.rodrigo.ecommerce;
 
 import java.math.BigDecimal;
 
-public class Email {
+public class Order {
 
     private final String userId;
-    private final String oderId;
+    private final String orderId;
     private final BigDecimal amount;
 
-    public Email(String userId, String oderId, BigDecimal amount) {
+    public Order(String userId, String orderId, BigDecimal amount) {
         this.userId = userId;
-        this.oderId = oderId;
+        this.orderId = orderId;
         this.amount = amount;
     }
 }
